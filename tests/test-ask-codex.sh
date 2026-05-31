@@ -7,6 +7,8 @@
 #   MOCK_CODEX_EXIT_CODE - exit code the mock returns (default: 0)
 #   MOCK_CODEX_STDOUT    - text the mock writes to stdout
 #   MOCK_CODEX_STDERR    - text the mock writes to stderr
+#   MOCK_CODEX_HELP_OUTPUT - text the mock writes for `codex --help`
+#   MOCK_CODEX_ARGS_FILE - optional file where non-help argv is captured
 #
 
 set -euo pipefail
@@ -40,6 +42,15 @@ cat > "$MOCK_BIN_DIR/codex" << 'MOCK_EOF'
 #!/usr/bin/env bash
 # Mock codex binary for testing ask-codex.sh
 # Controlled via environment variables.
+if [[ "${1:-}" == "--help" ]]; then
+    if [[ -n "${MOCK_CODEX_HELP_OUTPUT:-}" ]]; then
+        echo "$MOCK_CODEX_HELP_OUTPUT"
+    fi
+    exit 0
+fi
+if [[ -n "${MOCK_CODEX_ARGS_FILE:-}" ]]; then
+    printf '%s\n' "$@" > "$MOCK_CODEX_ARGS_FILE"
+fi
 if [[ -n "${MOCK_CODEX_STDERR:-}" ]]; then
     echo "$MOCK_CODEX_STDERR" >&2
 fi
@@ -62,6 +73,8 @@ reset_mock() {
     export MOCK_CODEX_EXIT_CODE="0"
     export MOCK_CODEX_STDOUT=""
     export MOCK_CODEX_STDERR=""
+    export MOCK_CODEX_HELP_OUTPUT=""
+    export MOCK_CODEX_ARGS_FILE=""
 }
 
 # Helper: run ask-codex with mock codex in PATH, inside mock project
@@ -70,6 +83,7 @@ run_ask_codex() {
         cd "$MOCK_PROJECT"
         export CLAUDE_PROJECT_DIR="$MOCK_PROJECT"
         export XDG_CACHE_HOME="$TEST_DIR/cache"
+        export XDG_CONFIG_HOME="$TEST_DIR/no-user-config"
         PATH="$MOCK_BIN_DIR:$PATH" bash "$ASK_CODEX_SCRIPT" "$@"
     )
 }
@@ -208,6 +222,29 @@ if [[ $EXIT_CODE -eq 0 ]]; then
 else
     fail "successful run exits 0" "exit 0" "exit=$EXIT_CODE"
 fi
+
+# Test: supported Codex --disable flag disables all known hook features
+reset_mock
+export MOCK_CODEX_STDOUT="hook-disable-test"
+export MOCK_CODEX_HELP_OUTPUT="  --disable <feature>   Disable a feature"
+ASK_CODEX_ARGS_FILE="$TEST_DIR/ask-codex-args.txt"
+export MOCK_CODEX_ARGS_FILE="$ASK_CODEX_ARGS_FILE"
+EXIT_CODE=0
+run_ask_codex "hook disable test" > /dev/null 2>&1 || EXIT_CODE=$?
+CAPTURED_ARGS="$(cat "$ASK_CODEX_ARGS_FILE" 2>/dev/null || true)"
+if [[ $EXIT_CODE -eq 0 ]] \
+    && echo "$CAPTURED_ARGS" | grep -qx -- 'exec' \
+    && echo "$CAPTURED_ARGS" | grep -qx -- '--disable' \
+    && echo "$CAPTURED_ARGS" | grep -qx -- 'hooks' \
+    && echo "$CAPTURED_ARGS" | grep -qx -- 'plugin_hooks' \
+    && echo "$CAPTURED_ARGS" | grep -qx -- 'codex_hooks'; then
+    pass "successful run disables all known hook features for nested codex exec"
+else
+    fail "successful run disables all known hook features for nested codex exec" \
+        "exec args include hooks, plugin_hooks, codex_hooks" \
+        "exit=$EXIT_CODE, args=$CAPTURED_ARGS"
+fi
+reset_mock
 
 # ========================================
 # Error Handling Tests

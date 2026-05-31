@@ -191,9 +191,14 @@ run_selector() {
 
     if [[ "$provider" == "codex" ]]; then
         local codex_exec_args=()
-        # Probe whether the installed Codex CLI supports --disable flag
+        # Disable native hooks for nested helper calls. Codex has used different
+        # feature names across releases, so pass all known names when supported.
         if codex --help 2>&1 | grep -q -- '--disable'; then
-            codex_exec_args+=("--disable" "codex_hooks")
+            codex_exec_args+=(
+                "--disable" "hooks"
+                "--disable" "plugin_hooks"
+                "--disable" "codex_hooks"
+            )
         fi
         # Probe for --skip-git-repo-check and --ephemeral support
         if codex exec --help 2>&1 | grep -q -- '--skip-git-repo-check'; then

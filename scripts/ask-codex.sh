@@ -144,7 +144,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Join question parts into a single string
-QUESTION="${QUESTION_PARTS[*]}"
+QUESTION="${QUESTION_PARTS[*]-}"
 
 # ========================================
 # Validate Prerequisites
@@ -241,6 +241,13 @@ EOF
 # Build Codex Command
 # ========================================
 
+# Disable native hooks for nested helper calls. Codex has used different feature
+# names across releases, so pass all known names when --disable is available.
+CODEX_DISABLE_HOOKS_ARGS=()
+if codex --help 2>&1 | grep -q -- '--disable'; then
+    CODEX_DISABLE_HOOKS_ARGS=(--disable hooks --disable plugin_hooks --disable codex_hooks)
+fi
+
 # Build codex exec arguments (same pattern as loop-codex-stop-hook.sh)
 CODEX_EXEC_ARGS=("-m" "$CODEX_MODEL")
 if [[ -n "$CODEX_EFFORT" ]]; then
@@ -269,7 +276,7 @@ CODEX_STDERR_FILE="$CACHE_DIR/codex-run.log"
     echo "# Working directory: $PROJECT_ROOT"
     echo "# Timeout: $CODEX_TIMEOUT seconds"
     echo ""
-    echo "codex exec ${CODEX_EXEC_ARGS[*]} \"<prompt>\""
+    echo "codex exec ${CODEX_DISABLE_HOOKS_ARGS[*]-} ${CODEX_EXEC_ARGS[*]} \"<prompt>\""
     echo ""
     echo "# Prompt content:"
     echo "$QUESTION"
@@ -294,8 +301,13 @@ epoch_to_iso() {
 START_TIME=$(date +%s)
 
 CODEX_EXIT_CODE=0
-printf '%s' "$QUESTION" | run_with_timeout "$CODEX_TIMEOUT" codex exec "${CODEX_EXEC_ARGS[@]}" - \
-    > "$CODEX_STDOUT_FILE" 2> "$CODEX_STDERR_FILE" || CODEX_EXIT_CODE=$?
+if ((${#CODEX_DISABLE_HOOKS_ARGS[@]})); then
+    printf '%s' "$QUESTION" | run_with_timeout "$CODEX_TIMEOUT" codex exec "${CODEX_DISABLE_HOOKS_ARGS[@]}" "${CODEX_EXEC_ARGS[@]}" - \
+        > "$CODEX_STDOUT_FILE" 2> "$CODEX_STDERR_FILE" || CODEX_EXIT_CODE=$?
+else
+    printf '%s' "$QUESTION" | run_with_timeout "$CODEX_TIMEOUT" codex exec "${CODEX_EXEC_ARGS[@]}" - \
+        > "$CODEX_STDOUT_FILE" 2> "$CODEX_STDERR_FILE" || CODEX_EXIT_CODE=$?
+fi
 
 END_TIME=$(date +%s)
 DURATION=$((END_TIME - START_TIME))
