@@ -69,8 +69,18 @@ render_template() {
     # Single-pass replacement using awk
     # Scans for {{VAR}} patterns and replaces them with values from environment
     # Replaced content goes directly to output without re-scanning
+    #
+    # NOTE: use ${env_vars[@]+"${env_vars[@]}"} rather than "${env_vars[@]}".
+    # When render_template is called with no VAR=value pairs (e.g. a static
+    # block/*.md template via load_and_render_safe), env_vars is an empty array,
+    # and expanding "${env_vars[@]}" under `set -u` aborts with
+    # "env_vars[@]: unbound variable" on bash < 4.4 (macOS ships bash 3.2). That
+    # makes the awk substitution fail and any hook that renders a no-variable
+    # template exit non-zero ("Stop hook error: Failed with non-blocking status
+    # code"). The ${arr[@]+...} guard expands to nothing for an empty array and
+    # to the quoted elements otherwise, and is safe on bash 3.2.
     local awk_exit=0
-    content=$(env "${env_vars[@]}" awk '
+    content=$(env ${env_vars[@]+"${env_vars[@]}"} awk '
     BEGIN {
         # Build lookup table from environment variables with TMPL_VAR_ prefix
         for (name in ENVIRON) {
